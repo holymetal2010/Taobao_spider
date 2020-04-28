@@ -81,14 +81,38 @@ class taobao(object):
                     logger.info('没有下一页，抓取完成')
                     break
                 else:
+                    # 3.
+                    # 这里如果通过click()抛出ElementClickInterceptedException来判断是否出现了验证码似乎会出现以下这种问题
+                    # 点击下一页->出现验证码，而此时并不会立即抛出ElementClickInterceptedException
+                    # 程序将重新开始一次while循环，并重复抓取本页内容，直到下一次的click()时才会抛出异常
+                    # 这样在出现验证码时就会重复抓取数据
+                    # 猜想能否在next.click()之后再添加一个动作来判断是否出现了验证码
+                    # 另外next好像是关键字
                     next.click()
 
             # 出现滑块验证
             except ElementClickInterceptedException:
+                # 1.
+                # 这里的滑块验证位于iframe标签中，无法直接定位，需要通过driver.switch_to.frame()方法切换
+                # 并且需要将验证码页面滚动至验证码块可见，再开始模拟滑动，否则会抛出MoveTargetOutOfBoundsException 异常
+                # 验证码页面打开时，验证码块恰好不可见（高度相差1），疑为设置的反爬措施
+                captcha_frame = self.browser.find_element_by_xpath('//div[@id="J_sufei"]/iframe')
+                self.browser.switch_to.frame(captcha_frame)
                 slider = self.browser.find_element_by_xpath("//span[contains(@class, 'btn_slide')]")
+                # 这里也可以使用self.browser.execute_script('arguments[0].scrollIntoView();', slider)来滑动至 slider可见
+                self.drop_down()
                 self.action_chains.drag_and_drop_by_offset(slider, 258, 0).perform()
                 time.sleep(0.5)
                 self.action_chains.release().perform()
+                # 2.
+                # 这里似乎需要判断验证是否成功，如果验证失败需要点击刷新重新加载并重试
+                # 我是通过定义了一个has_element(xpath)的方法来查找出错时的标志性element判断是否验证成功
+                # 方法中通过 try:find_element_by_xpath()定位元素，若抛出NoSuchElementException则返回False,否则返回True
+                # 但是感觉略显笨拙，代码这里就不提交了，如果有更合适的方法还请指教
+
+                # 滑动完成后需要再将driver切换回原框架中
+                self.browser.switch_to.parent_frame()
+
 
             except Exception as e:
                 logger.error('出现未知错误:' + e)
